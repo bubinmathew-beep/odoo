@@ -127,6 +127,121 @@ test("Same attribute on two lines keeps one selection per line", async () => {
     expect(Object.keys(line.selectedAttributes).length).toBe(2);
 });
 
+<<<<<<< 859c06f83a80b0b39e2ced68b3547961312d66bf
+||||||| 30cdd8ac2165b0b9f5ef5ed9d11546813e4693d2
+const setupAndAssertExcludedValuesConfigurator = async (displayType, selector) => {
+    const store = await setupPosEnv();
+    const productTemplate = store.models["product.template"].get(51);
+    const ptal = store.models["product.template.attribute.line"].get(5);
+
+    store.models["product.attribute"].get(10).display_type = displayType;
+    store.models["product.attribute"].get(7).display_type = displayType;
+
+    productTemplate.update({
+        attribute_line_ids: [productTemplate.attribute_line_ids[0], ptal],
+    });
+
+    const [choco, vanilla, s, m] = store.models["product.template.attribute.value"]
+        .getAll()
+        .filter((c) => [5, 6, 8, 9].includes(c.id));
+
+    choco.update({ excluded_value_ids: [m] });
+    vanilla.update({ excluded_value_ids: [s] });
+    store.processProductAttributes();
+
+    await mountWithCleanup(ProductConfiguratorPopup, {
+        props: {
+            productTemplate: productTemplate,
+            getPayload: () => {},
+            close: () => {},
+        },
+    });
+
+    expect(`label[${selector}='Chocolate']`).toHaveClass("active");
+    expect(`label[${selector}='S']`).toHaveClass("active");
+    expect(".btn:contains('Add')").not.toHaveClass("disabled");
+
+    await contains(`label[${selector}='Vanilla']`).click();
+    expect(`label[${selector}='Vanilla']`).toHaveClass("active");
+    expect(".btn:contains('Add')").toHaveClass("disabled");
+    await contains(`label[${selector}='M']`).click();
+    expect(`label[${selector}='M']`).toHaveClass("active");
+    expect(".btn:contains('Add')").not.toHaveClass("disabled");
+
+    await contains(`label[${selector}='Chocolate']`).click();
+    expect(`label[${selector}='Chocolate']`).toHaveClass("active");
+    expect(".btn:contains('Add')").toHaveClass("disabled");
+};
+
+test("pills: excluded value remains selectable and resolves to a valid combination", async () => {
+    await setupAndAssertExcludedValuesConfigurator("pills", "name");
+});
+
+test("color: excluded value remains selectable and resolves to a valid combination", async () => {
+    await setupAndAssertExcludedValuesConfigurator("color", "title");
+});
+
+=======
+const setupAndAssertExcludedValuesConfigurator = async (displayType, selector) => {
+    const store = await setupPosEnv();
+    const productTemplate = store.models["product.template"].get(51);
+    const ptal = store.models["product.template.attribute.line"].get(5);
+
+    store.models["product.attribute"].get(10).display_type = displayType;
+    store.models["product.attribute"].get(7).display_type = displayType;
+
+    productTemplate.update({
+        attribute_line_ids: [productTemplate.attribute_line_ids[0], ptal],
+    });
+
+    const [choco, vanilla, s, m] = store.models["product.template.attribute.value"]
+        .getAll()
+        .filter((c) => [5, 6, 8, 9].includes(c.id));
+
+    choco.update({ excluded_value_ids: [m] });
+    vanilla.update({ excluded_value_ids: [s] });
+    // The exclusions leave only these two variants.
+    store.models["product.product"].get(51).update({
+        product_template_attribute_value_ids: [choco, s],
+    });
+    store.models["product.product"].get(52).update({
+        product_template_attribute_value_ids: [vanilla, m],
+    });
+    store.processProductAttributes();
+
+    await mountWithCleanup(ProductConfiguratorPopup, {
+        props: {
+            productTemplate: productTemplate,
+            getPayload: () => {},
+            close: () => {},
+        },
+    });
+
+    expect(`label[${selector}='Chocolate']`).toHaveClass("active");
+    expect(`label[${selector}='S']`).toHaveClass("active");
+    expect(".btn:contains('Add')").not.toHaveClass("disabled");
+
+    await contains(`label[${selector}='Vanilla']`).click();
+    expect(`label[${selector}='Vanilla']`).toHaveClass("active");
+    expect(".btn:contains('Add')").toHaveClass("disabled");
+    await contains(`label[${selector}='M']`).click();
+    expect(`label[${selector}='M']`).toHaveClass("active");
+    expect(".btn:contains('Add')").not.toHaveClass("disabled");
+
+    await contains(`label[${selector}='Chocolate']`).click();
+    expect(`label[${selector}='Chocolate']`).toHaveClass("active");
+    expect(".btn:contains('Add')").toHaveClass("disabled");
+};
+
+test("pills: excluded value remains selectable and resolves to a valid combination", async () => {
+    await setupAndAssertExcludedValuesConfigurator("pills", "name");
+});
+
+test("color: excluded value remains selectable and resolves to a valid combination", async () => {
+    await setupAndAssertExcludedValuesConfigurator("color", "title");
+});
+
+>>>>>>> b45b6d8fc18e2c35179ad475f5b29a757c9ab9e2
 const setupArchivedAttributeLine = async () => {
     const store = await setupPosEnv();
     // "Leather Belt" with an active "size" line (S/M) and an attribute line archived
@@ -200,4 +315,44 @@ test("Archived attribute line does not open the configurator", async () => {
     });
     const payload = await store.openConfigurator(productTemplate);
     expect(payload.attribute_value_ids).toEqual([10]);
+});
+
+test("Deleted variant combination cannot be added", async () => {
+    const store = await setupPosEnv();
+    // "Leather Belt" with a "size" line (S/M) creating variants and a `no_variant`
+    // "Customization" line, whose "M" variant has been deleted.
+    const productTemplate = store.models["product.template"].get(60);
+    productTemplate.update({
+        attribute_line_ids: store.models["product.template.attribute.line"].readMany([5, 4]),
+    });
+    store.models["product.product"].get(61).delete();
+    const order = store.addNewOrder();
+
+    const popup = await mountWithCleanup(ProductConfiguratorPopup, {
+        props: {
+            productTemplate: productTemplate,
+            getPayload: () => {},
+            close: () => {},
+        },
+    });
+
+    expect(".modal .alert-warning").toHaveCount(0);
+    expect(".modal-footer .btn-primary").not.toHaveClass("disabled");
+
+    await contains("input[id='7_9']").click(); // size "M"
+    expect(".modal .alert-warning").toHaveText(
+        "This option or combination of options is not available"
+    );
+    expect(".modal-footer .btn-primary").toHaveClass("disabled");
+
+    let alertProps;
+    patchWithCleanup(store.dialog, {
+        add: (component, props) => (alertProps = props),
+    });
+    await store.addLineToCurrentOrder({
+        product_tmpl_id: productTemplate,
+        payload: popup.computePayload(),
+    });
+    expect(alertProps.title).toBe("Variant does not exist");
+    expect(order.lines).toHaveLength(0);
 });
