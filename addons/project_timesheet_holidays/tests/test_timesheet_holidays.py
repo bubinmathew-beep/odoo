@@ -623,3 +623,34 @@ class TestTimesheetHolidays(TestCommonTimesheet):
         }).action_register()
 
         self.assertFalse(leave_timesheet.exists(), "The timesheet should be safely unlinked from the leave and deleted.")
+
+    def test_holiday_with_calendar_timezone(self):
+        """
+        Tests that the timesheets for public holidays use the working schedule's company's timezone
+        """
+        self.env.company.tz = 'Asia/Dubai'
+        dubai_calendar = self.env['resource.calendar'].create({
+            'name': 'Dubai tz calendar',
+            'hours_per_day': 8.0,
+            'attendance_ids': [
+                (0, 0, {
+                    'dayofweek': str(day),
+                    'hour_from': 8.0,
+                    'hour_to': 16.0,
+                    'day_period': 'morning',
+                }) for day in range(5)
+            ]
+        })
+
+        self.empl_employee.resource_calendar_id = dubai_calendar.id
+        christmas = self.env['resource.calendar.leaves'].create({
+            'name': 'Christmas',
+            'calendar_id': dubai_calendar.id,
+            'date_from': datetime(2026, 12, 24, 4, 0, 0),
+            'date_to': datetime(2026, 12, 24, 8, 0, 0),
+        })
+        timesheet = self.env['account.analytic.line'].search([
+            ('global_leave_id', '=', christmas.id),
+            ('employee_id', '=', self.empl_employee.id),
+        ])
+        self.assertEqual(timesheet.unit_amount, 4.0, "The amount of leaves should use the company's timezone and not blindly take UTC")
