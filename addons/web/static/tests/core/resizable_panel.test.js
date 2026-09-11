@@ -1,5 +1,13 @@
 import { describe, expect, test } from "@odoo/hoot";
-import { drag, queryOne, queryRect, resize } from "@odoo/hoot-dom";
+import {
+    drag,
+    hover,
+    manuallyDispatchProgrammaticEvent,
+    pointerDown,
+    queryOne,
+    queryRect,
+    resize,
+} from "@odoo/hoot-dom";
 import { animationFrame } from "@odoo/hoot-mock";
 import { Component, proxy, useProps, xml } from "@odoo/owl";
 import { mountWithCleanup } from "@web/../tests/web_test_helpers";
@@ -114,6 +122,57 @@ test("the width follows the pointer wherever the handle is grabbed", async () =>
     expect(".o_resizable_panel").toHaveRect({ width: 110 });
     await drop(".o_resizable_panel_handle", { position: { x: grabX - 20, y } });
     expect(".o_resizable_panel").toHaveRect({ width: 80 });
+});
+
+test("a right click on the handle does not start a resize", async () => {
+    class Parent extends Component {
+        static components = { ResizablePanel };
+        static template = xml`
+            <div class="d-flex">
+                <ResizablePanel minWidth="20" initialWidth="100">
+                    <div style="width: 10px;" class="text-break">
+                        A cool paragraph
+                    </div>
+                </ResizablePanel>
+            </div>
+        `;
+    }
+
+    await mountWithCleanup(Parent);
+    await pointerDown(".o_resizable_panel_handle", { button: 2 });
+    await hover(".o_resizable_panel_handle", { position: { x: 50 }, relative: true });
+    expect(".o_resizable_panel").toHaveRect({ width: 100 });
+    expect(document.body).not.toHaveClass("pe-none");
+});
+
+test("a resize stops when the pointer moves without the button pressed", async () => {
+    class Parent extends Component {
+        static components = { ResizablePanel };
+        static template = xml`
+            <div class="d-flex">
+                <ResizablePanel minWidth="20" initialWidth="100">
+                    <div style="width: 10px;" class="text-break">
+                        A cool paragraph
+                    </div>
+                </ResizablePanel>
+            </div>
+        `;
+    }
+
+    await mountWithCleanup(Parent);
+    const { drop, moveTo } = await drag(".o_resizable_panel_handle");
+    await moveTo(".o_resizable_panel_handle", { position: { x: 10 }, relative: true });
+    expect(document.body).toHaveClass("pe-none");
+    const width = queryRect(".o_resizable_panel").width;
+
+    // e.g. the button was released outside the window
+    await manuallyDispatchProgrammaticEvent(document, "mousemove", {
+        buttons: 0,
+        clientX: queryRect(".o_resizable_panel_handle").x + 50,
+    });
+    expect(".o_resizable_panel").toHaveRect({ width });
+    expect(document.body).not.toHaveClass("pe-none");
+    await drop();
 });
 
 test("outer handle sits outside the panel and stays visible while resizing", async () => {

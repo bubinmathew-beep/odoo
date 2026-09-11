@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates>
+
+    <t t-name="web.SidePanelToggle">
+        <div class="position-relative z-1 d-print-none">
+            <button
+                type="button"
+                class="o_side_panel_toggle btn btn-light rounded-circle position-absolute bottom-0 mb-2 p-0 d-flex align-items-center justify-content-center"
+                t-attf-class="o_side_panel_toggle_{{ this.props.side }}"
+                t-att-data-tooltip="this.label()"
+                t-att-aria-label="this.label()"
+                t-att-aria-expanded="!this.props.folded"
+                t-on-click="() => this.props.onToggle()"
+            >
+                <i
+                    class="oi oi-fw pe-none"
+                    t-att-class="{ o_side_panel_toggle_folded: this.props.folded }"
+                    t-att-data-icon="this.props.side === 'start' ? 'chevron_backward' : 'chevron_forward'"
+                    aria-hidden="true"
+                />
+            </button>
+        </div>
+    </t>
+
+</templates>
