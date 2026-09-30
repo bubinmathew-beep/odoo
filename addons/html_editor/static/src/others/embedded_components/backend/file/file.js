@@ -7,6 +7,7 @@ import {
     useEmbeddedState,
 } from "@html_editor/others/embedded_component_utils";
 import { ReadonlyEmbeddedFileComponent } from "@html_editor/others/embedded_components/core/file/readonly_file";
+import { RenameDialog } from "./rename_dialog";
 
 export class EmbeddedFileComponent extends ReadonlyEmbeddedFileComponent {
     static template = "html_editor.EmbeddedFile";
@@ -37,7 +38,7 @@ export class EmbeddedFileComponent extends ReadonlyEmbeddedFileComponent {
 
     onBlurNameInput(ev) {
         this.localState.editFileName = false;
-        this.renameFile();
+        this.renameFile(this.nameInput()?.value);
     }
 
     onFocusFileName(ev) {
@@ -53,14 +54,46 @@ export class EmbeddedFileComponent extends ReadonlyEmbeddedFileComponent {
         } else {
             ev.preventDefault();
         }
-        if (this.renameFile()) {
+        if (this.renameFile(this.nameInput()?.value)) {
             this.localState.editFileName = false;
             this.env.editorShared?.setSelectionAfter(this.props.host);
         }
     }
+    onFileRename() {
+        if (!this.isPreviewShown) {
+            // The file name is visible: edit it in place, as when clicking on
+            // it. Wait for the dropdown to close first, as it puts the focus
+            // back on its toggler when closing, which would blur the input.
+            Promise.resolve().then(() => this.onFocusFileName());
+            return;
+        }
+        // The preview replaces the file box: use a dialog.
+        this.dialogService.add(RenameDialog, {
+            filename: this.fileModel.filename,
+            rename: this.renameFile.bind(this),
+        });
+    }
+    onFileRemove() {
+        this.env.editorShared?.remove(this.props.host);
+    }
+    toggleInlinePreview() {
+        this.state.isPreviewInline = !this.state.isPreviewInline;
+        this.env.editorShared?.setSelectionAfter(this.props.host);
+        this.hideSettingsOverlay();
+        // The preview is toggled from the settings dropdown, which takes the
+        // focus out of the editable. Give it back, otherwise the editor would
+        // do it on the next interaction, e.g. blurring the file name input
+        // right after it got focused.
+        // Wait for the dropdown to close first, as it puts the focus back
+        // on its toggler when closing.
+        Promise.resolve().then(() => this.env.editorShared?.focusEditable());
+    }
 
-    renameFile() {
-        let newName = this.nameInput()?.value || "";
+    /**
+     * @param {string} [newName]
+     * @returns {boolean} whether the name is valid
+     */
+    renameFile(newName = "") {
         if (!newName.length) {
             return false;
         }
