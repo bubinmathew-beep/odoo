@@ -143,7 +143,14 @@ class TestL10nMMEmvQrCode(AccountTestInvoicingCommon):
         with self.assertRaises(UserError, msg="The proxy type of an MMQR code must be a Merchant ID."):
             self.emv_qr_invoice._generate_qr_code()
 
+    def test_mm_trusted_lock(self):
+        for fname, value in (('proxy_value', '6543210987654321'), ('l10n_mm_terminal_id', '1')):
+            with self.assertRaisesRegex(UserError, "has been trusted"), self.cr.savepoint():
+                self.acc_emv_mm[fname] = value
+
     def test_mm_proxy_constraints(self):
+        self.acc_emv_mm.allow_out_payment = False
+
         with self.assertRaises(ValidationError, msg="The Merchant ID of an MMQR code must be 16 digits long."):
             self.acc_emv_mm.proxy_value = '123456789012345'
         self.acc_emv_mm.invalidate_recordset()
