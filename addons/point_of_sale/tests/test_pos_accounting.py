@@ -2459,3 +2459,84 @@ class TestPosAccounting(AccountTestInvoicingCommon):
         self.assertEqual(move.payment_state, 'paid')
         term_lines = move.line_ids.filtered(lambda line: line.display_type == 'payment_term')
         self.assertEqual(term_lines.account_id, self.main_company.receivable_account_id)
+<<<<<<< 5c3e167491a7cb9b8d47852c2f2b8b287c2af3f3
+||||||| 53882d6696307bd63504f79ae8aa421b7468a333
+
+    def test_invoice_pos_order_without_customer(self):
+        """Test that invoicing a POS order without a customer raises a UserError."""
+        self.open_pos_session()
+        order = self.create_pos_order(
+            payment_method=[[self.cash_pm, {'amount': 10.6}]],
+            products=[[self.product_6, {}]],
+        )
+        self.close_session()
+
+        with self.assertRaisesRegex(UserError, "A customer is required on the order to create an invoice."):
+            order.action_pos_order_invoice()
+=======
+
+    def test_invoice_pos_order_without_customer(self):
+        """Test that invoicing a POS order without a customer raises a UserError."""
+        self.open_pos_session()
+        order = self.create_pos_order(
+            payment_method=[[self.cash_pm, {'amount': 10.6}]],
+            products=[[self.product_6, {}]],
+        )
+        self.close_session()
+
+        with self.assertRaisesRegex(UserError, "A customer is required on the order to create an invoice."):
+            order.action_pos_order_invoice()
+
+    def test_bank_payment_method_without_outstanding_account(self):
+        outstanding_receipts = self.env['account.chart.template'].ref('account_journal_payment_debit_account_id')
+        # Created without outstanding account, as from an import or by a user without accounting rights
+        new_bank_pm = self.env['pos.payment.method'].create({
+            'name': 'New Bank',
+            'type': 'bank',
+            'journal_id': self.bank_journal.id,
+        })
+        self.assertEqual(new_bank_pm.outstanding_account_id, outstanding_receipts)
+
+        # With accounting installed, account.payment does not fall back to a default outstanding account
+        self.startPatcher(patch.object(self.env.registry['account.move'], '_get_invoice_in_payment_state', return_value='in_payment'))
+        self.bank_pm.outstanding_account_id = False
+        method_lines = self.bank_journal.inbound_payment_method_line_ids | self.bank_journal.outbound_payment_method_line_ids
+        method_lines.payment_account_id = False
+        session = self.open_pos_session()
+        self.create_pos_order(
+            payment_method=[[self.bank_pm, {'amount': 10.6}]],
+            products=[[self.product_6, {}]],
+        )
+
+        # No payment without journal entry
+        with self.assertRaisesRegex(UserError, "The payment method Bank has no outstanding account"):
+            self.create_pos_order(
+                payment_method=[[self.bank_pm, {'amount': 10.6}]],
+                products=[[self.product_6, {}]],
+                extra_data={
+                    'partner_id': self.partner_1.id,
+                    'to_invoice': True,
+                },
+            )
+        with self.assertRaisesRegex(UserError, "The payment method Bank has no outstanding account"):
+            self.close_session()
+        self.assertFalse(self.env['account.payment'].search([('pos_session_id', '=', session.id)]))
+
+        # The missing account can be set while the session is open, but not changed afterwards
+        self.bank_pm.outstanding_account_id = outstanding_receipts
+        with self.assertRaisesRegex(UserError, "Please close and validate the following open PoS Sessions"):
+            self.bank_pm.outstanding_account_id = self.bank_outstanding_account
+        self.close_session()
+        payment = self.env['account.payment'].search([('pos_session_id', '=', session.id)])
+        self.assertEqual(payment.outstanding_account_id, outstanding_receipts)
+        self.assertTrue(payment.move_id)
+        self.assertEqual(session.sale_move_ids.amount_residual, 0.0)
+
+        # A copy in another company gets the default of that company
+        company_2_data = self.setup_other_company()
+        company_2_pm = new_bank_pm.copy({
+            'company_id': company_2_data['company'].id,
+            'journal_id': company_2_data['default_journal_bank'].id,
+        })
+        self.assertIn(company_2_data['company'], company_2_pm.outstanding_account_id.company_ids)
+>>>>>>> fa5b9bfa44684c0dd489353a7a4946cceba2c05c
