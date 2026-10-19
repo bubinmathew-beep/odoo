@@ -766,7 +766,7 @@ class ResourceCalendar(models.Model):
                 day_hours[day_start.date()] += (day_end - day_start).total_seconds() / 3600
                 day_start = day_end
 
-        duration_based_attendances = self.attendance_ids.filtered('duration_based')
+        duration_based_attendances = self.sudo().attendance_ids.filtered('duration_based')
         for day, hours in day_hours.items():
             if attendances := duration_based_attendances._filter_by_date(day):
                 hours_per_day = sum(attendances.mapped('duration_hours'))
