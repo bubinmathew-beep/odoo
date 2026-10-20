@@ -10,7 +10,8 @@
                 <field name="amount" string="Amount" widget='monetary'/>
                 <field name="symbol" string="" width="50px"/>
                 <field name="amount_type" string="Type"/>
-                <field name="trusted" widget="boolean_toggle" string="Trusted"/>
+                <field name="can_trust" column_invisible="1"/>
+                <field name="trusted" widget="boolean_toggle" string="Trusted" readonly="not can_trust"/>
             </list>
         </field>
     </record>
