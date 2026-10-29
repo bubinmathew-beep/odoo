@@ -263,9 +263,45 @@ export class SplitBillScreen extends Component {
         }
         await this.handleDiscountLines(originalOrder, newOrder);
         await this.handleServiceFeeLines(originalOrder, newOrder);
+<<<<<<< 34631b5dac93ebf7c08ddec8c982499ae76aabd2
+||||||| 8173a45a0047755f08cbefb1997bffbaad99a1b3
+        // Stash the prep-line pairs so createSplittedOrder can reconcile them
+        // after syncAllOrders (they are built here but consumed post-sync).
+        this.prepLinePairs = prepLinePairs;
+        return newOrder;
+    }
+
+    async createSplittedOrder() {
+        const curOrderUuid = this.currentOrder.uuid;
+        const originalOrder = this.pos.models["pos.order"].find((o) => o.uuid === curOrderUuid);
+        const originalOrderName = this._getOrderName(originalOrder);
+        const newOrderName = this._getSplitOrderName(originalOrderName);
+        const newOrder = await this._createNewSplitOrder(originalOrder, newOrderName, curOrderUuid);
+=======
+        // Stash the prep-line pairs so createSplittedOrder can reconcile them
+        // after syncAllOrders (they are built here but consumed post-sync).
+        this.prepLinePairs = prepLinePairs;
+        return newOrder;
+    }
+
+    async createSplittedOrder() {
+        const curOrderUuid = this.currentOrder.uuid;
+        const originalOrder = this.pos.models["pos.order"].find((o) => o.uuid === curOrderUuid);
+        const originalOrderName = this._getOrderName(originalOrder);
+        const newOrderName = this._getSplitOrderName(originalOrderName);
+        const newOrder = await this._createNewSplitOrder(originalOrder, newOrderName, curOrderUuid);
+        originalOrder.setCustomerCount(originalOrder.getCustomerCount() - 1);
+>>>>>>> eff5c0c6d00adecef0bb99b5b66ea37ee14796e2
         await this.pos.syncAllOrders({ orders: [originalOrder, newOrder] });
+<<<<<<< 34631b5dac93ebf7c08ddec8c982499ae76aabd2
         await this.pos.onPrepLinesSynced(prepLinePairs);
         originalOrder.customer_count -= 1;
+||||||| 8173a45a0047755f08cbefb1997bffbaad99a1b3
+        await this.pos.onPrepLinesSynced(this.prepLinePairs);
+        originalOrder.customer_count -= 1;
+=======
+        await this.pos.onPrepLinesSynced(this.prepLinePairs);
+>>>>>>> eff5c0c6d00adecef0bb99b5b66ea37ee14796e2
         originalOrder.setScreenData({ name: "ProductScreen" });
         this.pos.selectedOrderUuid = null;
         this.pos.setOrder(newOrder);
