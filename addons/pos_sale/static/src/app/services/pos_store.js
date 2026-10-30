@@ -81,6 +81,7 @@ patch(PosStore.prototype, {
         }
         return sale_order;
     },
+<<<<<<< 89b43bb6c898a577108d2692a3b8d604d1b958a5
     getConvertedQuantityFromSaleOrderline(convertedLine, soLine) {
         const type = soLine.product_id.type;
         const sOrder = soLine.order_id;
@@ -90,6 +91,18 @@ patch(PosStore.prototype, {
             !["sent", "draft"].includes(sOrder.state)
         ) {
             return convertedLine.qty_to_invoice;
+||||||| dbe6fc0a1fcbb77c73db8e6fde9726f38af9297c
+    getConvertedQuantityFromSaleOrderline(convertedLine, soLine) {
+        const type = convertedLine.product_id.type;
+        const sOrder = soLine.order_id;
+        if (type === "service" && !["sent", "draft"].includes(sOrder.state)) {
+            return convertedLine.qty_to_invoice;
+=======
+    getConvertedQuantityFromSaleOrderline(convertedLine, _soLine) {
+        if (convertedLine.qty_delivered_method !== "stock_move") {
+            // Not delivered through stock (e.g. services, rentals): a delivered line can still be unpaid
+            return convertedLine.product_uom_qty - convertedLine.qty_invoiced;
+>>>>>>> fdae82c483cfb046a14ee780fd42bec5a98103ed
         } else {
             return (
                 convertedLine.product_uom_qty -
