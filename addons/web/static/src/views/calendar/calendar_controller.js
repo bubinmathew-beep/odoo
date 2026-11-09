@@ -191,17 +191,12 @@ export class CalendarController extends Component {
         };
     }
 
-    get mobileFilterPanelProps() {
-        return {
-            model: this.model,
-            openFiltersBottomSheet: (ev) => {
-                this.filtersBottomSheet.open(ev.currentTarget, {
-                    ...this.sidePanelProps,
-                    sidePanelExpanded: true,
-                    inBottomSheet: true,
-                });
-            },
-        };
+    openFiltersBottomSheet(ev) {
+        this.filtersBottomSheet.open(ev.currentTarget, {
+            ...this.sidePanelProps,
+            sidePanelExpanded: true,
+            inBottomSheet: true,
+        });
     }
 
     get sidePanelProps() {

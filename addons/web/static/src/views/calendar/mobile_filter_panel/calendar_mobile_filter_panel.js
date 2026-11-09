@@ -6,7 +6,6 @@ export class CalendarMobileFilterPanel extends Component {
     static template = "web.CalendarMobileFilterPanel";
     props = useProps({
         model: t.object(),
-        openFiltersBottomSheet: t.function(),
     });
     getFilterColor(filter) {
         return `o_color_${getColor(filter.colorIndex)}`;

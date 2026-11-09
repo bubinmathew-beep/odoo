@@ -719,7 +719,7 @@ export async function changeScale(scale) {
 
 export async function displayCalendarPanel() {
     if (isSmall()) {
-        await contains(".o_calendar_container .o_other_calendar_panel").click();
+        await contains(".o_calendar_header .o_expand_filter_button").click();
         // let the bottom sheet position itself
         await animationFrame();
     }
@@ -755,9 +755,9 @@ export async function navigate(direction) {
  * @returns {Promise<void>}
  */
 export async function toggleFilter(sectionName, filterValue) {
-    const otherCalendarPanel = queryFirst(".o_other_calendar_panel");
-    if (otherCalendarPanel) {
-        click(otherCalendarPanel);
+    const filterButton = queryFirst(".o_calendar_header .o_expand_filter_button");
+    if (filterButton) {
+        click(filterButton);
         await animationFrame();
     }
     const root = findFilterPanelFilter(sectionName, filterValue);
@@ -768,7 +768,7 @@ export async function toggleFilter(sectionName, filterValue) {
     await click(input);
     await animationFrame();
 
-    if (otherCalendarPanel) {
+    if (filterButton) {
         await click(".o_bottom_sheet_backdrop");
         await animationFrame();
     }
@@ -781,9 +781,9 @@ export async function toggleFilter(sectionName, filterValue) {
  * @returns {Promise<void>}
  */
 export async function toggleSectionFilter(sectionName) {
-    const otherCalendarPanel = queryFirst(".o_other_calendar_panel");
-    if (otherCalendarPanel) {
-        await click(otherCalendarPanel);
+    const filterButton = queryFirst(".o_calendar_header .o_expand_filter_button");
+    if (filterButton) {
+        await click(filterButton);
         await animationFrame();
     }
     const root = findFilterPanelSectionFilter(sectionName);
@@ -794,7 +794,7 @@ export async function toggleSectionFilter(sectionName) {
     await click(input);
     await animationFrame();
 
-    if (otherCalendarPanel) {
+    if (filterButton) {
         await click(".o_bottom_sheet_backdrop");
         await animationFrame();
     }

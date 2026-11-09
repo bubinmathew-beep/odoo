@@ -1,7 +1,7 @@
 @media screen and (max-width: 767.98px), print and (max-width: 187.98mm) {
     .o_calendar_container {
         .o_other_calendar_panel {
-            grid-area: 2 / 1 / 2 / 4;
+            grid-area: 4 / 1 / 4 / 4;
             padding: var(--OtherCalendarPanel-padding, 0 var(--o-bs-spacer-2));
             min-height: 30px;
 
@@ -26,23 +26,6 @@
                     .o_color_#{$i - 1} {
                         color: $color;
                     }
-                }
-            }
-
-            /* The filters scrolling behind the button fade out against it */
-            .o_expand_filter_button {
-                position: relative;
-                z-index: 1;
-
-                &::before {
-                    position: absolute;
-                    top: 0;
-                    bottom: 0;
-                    left: -30px - $border-width;
-                    width: 30px;
-                    background: linear-gradient(to right, transparent, var(--o-control-panel-background-color));
-                    pointer-events: none;
-                    content: "";
                 }
             }
         }
