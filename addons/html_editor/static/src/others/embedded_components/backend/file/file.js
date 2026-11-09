@@ -12,6 +12,7 @@ export class EmbeddedFileComponent extends ReadonlyEmbeddedFileComponent {
     static template = "html_editor.EmbeddedFile";
 
     nameInput = signal.ref();
+    nameContainer = signal.ref();
 
     setup() {
         super.setup();
@@ -20,6 +21,7 @@ export class EmbeddedFileComponent extends ReadonlyEmbeddedFileComponent {
         this.fileModel.state = this.state;
         this.localState = proxy({
             editFileName: false,
+            nameWidth: 0,
         });
         useLayoutEffect(
             () => {
@@ -39,6 +41,9 @@ export class EmbeddedFileComponent extends ReadonlyEmbeddedFileComponent {
     }
 
     onFocusFileName(ev) {
+        // The input replaces the file name: give it the same width, so that
+        // the file box keeps its width.
+        this.localState.nameWidth = this.nameContainer()?.getBoundingClientRect().width || 0;
         this.localState.editFileName = true;
     }
 
