@@ -2487,6 +2487,23 @@ test("thread name stays inside a narrow header", async () => {
     expect(queryRect(".o-mail-DiscussContent-threadNameBox").right).toBeLessThan(headerBoxRight);
 });
 
+test("long thread name is not truncated when it fits next to a short description", async () => {
+    const pyEnv = await startServer();
+    const channelId = pyEnv["discuss.channel"].create({
+        name: "Customer Support and Service Operations for the Benelux and the Nordic Regions 2026",
+        description: "Quarterly",
+    });
+    await start();
+    await openDiscuss(channelId);
+    await contains(".o-discuss-ChannelMemberList"); // wait for auto-open of this panel
+    await patchUiSize({ width: 1600 });
+    await animationFrame();
+    const name = queryOne(".o-mail-DiscussContent-threadName");
+    const description = queryOne(".o-mail-DiscussContent-threadDescription");
+    expect(name.scrollWidth).toBe(name.clientWidth);
+    expect(description.scrollWidth).toBe(description.clientWidth);
+});
+
 test("parent channel chevron does not cover the sub-channel name in a narrow header", async () => {
     const pyEnv = await startServer();
     const parentId = pyEnv["discuss.channel"].create({ name: "General" });
