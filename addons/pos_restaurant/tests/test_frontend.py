@@ -271,6 +271,12 @@ class TestFrontend(TestFrontendCommon):
         order_tips.sort()
         self.assertEqual(order_tips, [0.0, 0.4, 1.0, 1.0, 1.5])
 
+        for order in orders.filtered('tip_amount'):
+            tip_line = order.lines.filtered(lambda line: line.product_id == self.pos_config.tip_product_id)
+            self.assertAlmostEqual(tip_line.price_subtotal, order.tip_amount)
+            self.assertAlmostEqual(tip_line.price_subtotal_incl, order.tip_amount)
+            self.assertAlmostEqual(sum(order.payment_ids.mapped('amount')), sum(order.lines.mapped('price_subtotal_incl')))
+
         order4 = self.env['pos.order'].search([('pos_reference', 'ilike', '%-000004')], limit=1, order='id desc')
         self.assertEqual(order4.customer_count, 2)
         self.pos_config.write({
@@ -296,6 +302,10 @@ class TestFrontend(TestFrontendCommon):
         self.assertTrue("15%" in html)
         self.assertTrue("20%" in html)
         self.assertTrue("25%" in html)
+
+        session = self.pos_config.current_session_id
+        session.close_session_from_ui()
+        self.assertEqual(session.state, 'closed')
 
     def test_06_split_bill_screen(self):
         self.pos_config.with_user(self.pos_user).open_ui()

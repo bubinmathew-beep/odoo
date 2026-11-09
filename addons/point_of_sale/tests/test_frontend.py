@@ -733,6 +733,16 @@ class TestUi(TestPointOfSaleHttpCommon):
         order_tips.sort()
         self.assertEqual(order_tips, [0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.8, 1.0, 1.5, 2.0, 10.0])
 
+        for order in orders.filtered('tip_amount'):
+            tip_line = order.lines.filtered(lambda line: line.product_id == self.main_pos_config.tip_product_id)
+            self.assertAlmostEqual(tip_line.price_subtotal, order.tip_amount)
+            self.assertAlmostEqual(tip_line.price_subtotal_incl, order.tip_amount)
+            self.assertAlmostEqual(sum(order.payment_ids.mapped('amount')), sum(order.lines.mapped('price_subtotal_incl')))
+
+        session = self.main_pos_config.current_session_id
+        session.close_session_from_ui()
+        self.assertEqual(session.state, 'closed')
+
     def test_ticket_screen_search_suggestions(self):
         """The search field suggestions must stay above the order list, on mobile too."""
         self.main_pos_config.with_user(self.pos_user).open_ui()
