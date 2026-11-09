@@ -80,6 +80,7 @@ export class Call extends Component {
             this.resizeObserver.disconnect();
             browser.clearTimeout(this.overlayTimeout);
         });
+<<<<<<< 6c48550eaa82581203de94a14b102d53e90e120d
         useLayoutEffect(
             () => this.applyCallLayout(),
             () => [
@@ -89,6 +90,39 @@ export class Call extends Component {
                 this.channel?.rtc_session_ids.length,
                 this.channel?.rtc_session_ids.some((s) => s.is_screen_sharing_on),
             ]
+||||||| d9d2c0ed1fa7d91439f8eed23eae5f0e4c0ba6fc
+        useHotkey("shift+d", () => this.rtc.toggleDeafen());
+        useHotkey("shift+m", () => this.rtc.toggleMicrophone());
+        useHotkey("shift+h", () => this.rtc.raiseHand(!this.rtc.selfSession.raisingHand));
+        useInDiscussCallView();
+    }
+
+    get layoutActions() {
+        if (!this.isActiveCall) {
+            return [];
+        }
+        return this.callActions.actions.filter((action) =>
+            action.tags.includes(ACTION_TAGS.CALL_LAYOUT)
+=======
+        useHotkey("shift+d", () => this.rtc.toggleDeafen(), {
+            isAvailable: () => Boolean(this.rtc.selfSession),
+        });
+        useHotkey("shift+m", () => this.rtc.toggleMicrophone(), {
+            isAvailable: () => Boolean(this.rtc.selfSession),
+        });
+        useHotkey("shift+h", () => this.rtc.raiseHand(!this.rtc.selfSession.raisingHand), {
+            isAvailable: () => Boolean(this.rtc.selfSession),
+        });
+        useInDiscussCallView();
+    }
+
+    get layoutActions() {
+        if (!this.isActiveCall) {
+            return [];
+        }
+        return this.callActions.actions.filter((action) =>
+            action.tags.includes(ACTION_TAGS.CALL_LAYOUT)
+>>>>>>> 953f800fd52414f53769d79fff16ff298a0c7657
         );
         useHotkey("shift+d", () => this.rtc.toggleDeafen());
         useHotkey("shift+m", ({ target }) => this.rtc.toggleMicrophone({ rootRef: () => target }));
