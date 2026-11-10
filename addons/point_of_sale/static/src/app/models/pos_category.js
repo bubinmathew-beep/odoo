@@ -10,7 +10,8 @@ export class PosCategory extends Base {
         if (this.child_ids.length === 0) {
             return children;
         }
-        for (const child of this.child_ids) {
+        const sortedChildren = [...this.child_ids].sort((a, b) => a.sequence - b.sequence);
+        for (const child of sortedChildren) {
             children.push(...child.getAllChildren());
         }
         return children;
