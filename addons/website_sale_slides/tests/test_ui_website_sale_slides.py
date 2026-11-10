@@ -1,5 +1,7 @@
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
 
+import lxml.html
+
 from odoo import fields, tests
 from odoo.addons.website_slides.tests import test_ui_wslides
 
@@ -37,3 +39,18 @@ class TestUiWebsiteSaleSlides(test_ui_wslides.TestUICommon):
 
     def test_invited_on_payment_course_public_connected(self):
         self.start_tour(self.portal_invite_url, 'invited_on_payment_course_public', login=None)
+
+    def test_course_price_editor_block_not_rendered_for_visitors(self):
+        # The course is open to everyone so both visitors reach its page.
+        self.channel.visibility = 'public'
+        for login in (None, 'portal'):
+            with self.subTest(login=login):
+                # Open the course page as a public or portal user.
+                self.authenticate(login, login)
+                response = self.url_open(self.channel.website_url)
+                self.assertEqual(response.status_code, 200)
+                doc = lxml.html.fromstring(response.content)
+                # The visitor's price is in the page, in the "Buy course" block.
+                self.assertTrue(doc.xpath('//div[hasclass("css_editable_mode_hidden")]//div[hasclass("oe_price")]'))
+                # The price block meant for the editor is not in the page at all.
+                self.assertFalse(doc.xpath('//*[hasclass("css_non_editable_mode_hidden")]'))
