@@ -2249,6 +2249,42 @@ class TestQWebBasic(TransactionCase):
         })
         self.env['ir.qweb']._render(view1.id, {'user': u})  # should not crash
 
+    def test_render_widget_contact_nothing_to_show(self):
+        """ A contact with none of the requested fields renders its name as a
+        placeholder only for editors, so they can still click it. It used to be
+        rendered for everyone and only hidden by CSS. """
+        # A partner without email, displayed with the email field only.
+        partner = self.env['res.partner'].create({'name': 'Hidden Venue', 'phone': '+32 81 81 37 00'})
+        view = self.env['ir.ui.view'].create({
+            'name': "dummy",
+            'type': 'qweb',
+            'arch': """
+                <t t-name="base.dummy"><root><span t-field="partner.self" t-options='{"widget": "contact", "fields": ["email"]}' /></root></t>
+            """
+        })
+
+        # Without branding, neither the name nor the editor-only class is in the HTML.
+        rendered = self.env['ir.qweb']._render(view.id, {'partner': partner})
+        self.assertNotIn('Hidden Venue', rendered)
+        self.assertNotIn('css_non_editable_mode_hidden', rendered)
+
+        # With branding, the editor gets the placeholder with the name.
+        rendered = self.env['ir.qweb'].with_context(inherit_branding=True)._render(view.id, {'partner': partner})
+        self.assertIn('css_non_editable_mode_hidden', rendered)
+        self.assertIn('Hidden Venue', rendered)
+
+        # Displayed with the phone field, the contact has something to show, so no placeholder.
+        view_phone = self.env['ir.ui.view'].create({
+            'name': "dummy phone",
+            'type': 'qweb',
+            'arch': """
+                <t t-name="base.dummy_phone"><root><span t-field="partner.self" t-options='{"widget": "contact", "fields": ["phone"]}' /></root></t>
+            """
+        })
+        rendered = self.env['ir.qweb'].with_context(inherit_branding=True)._render(view_phone.id, {'partner': partner})
+        self.assertIn('+32 81 81 37 00', rendered)
+        self.assertNotIn('css_non_editable_mode_hidden', rendered)
+
     def test_render_widget_duration_fallback(self):
         self.env['res.lang'].with_context(active_test=False).search([('code', '=', 'pt_BR')]).active = True
         view1 = self.env['ir.ui.view'].create({
