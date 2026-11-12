@@ -1,6 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <record id="l10n_fr_pdp_view_invoice_tree" model="ir.ui.view">
+        <field name="name">account.invoice.tree.inherit.l10n.fr.pdp</field>
+        <field name="model">account.move</field>
+        <field name="inherit_id" ref="account.view_invoice_tree"/>
+        <field name="arch" type="xml">
+            <field name="state" position="after">
+                <field name="l10n_fr_pdp_status" widget="badge" optional="show"
+                       column_invisible="not context.get('l10n_fr_pdp_flow_id')"
+                       decoration-danger="l10n_fr_pdp_status == 'error'"/>
+            </field>
+        </field>
+    </record>
+
     <record id="l10n_fr_pdp_view_in_invoice_refund_tree_inherit" model="ir.ui.view">
         <field name="name">account.move.list.inherit</field>
         <field name="model">account.move</field>
@@ -62,6 +75,11 @@
             </filter>
             <filter name="peppol_move_state" position="attributes">
                 <attribute name="string">E-Invoicing Status</attribute>
+            </filter>
+            <filter name="peppol_move_state" position="after">
+                <filter name="l10n_fr_pdp_status" string="E-Reporting Status"
+                        context="{'group_by': 'l10n_fr_pdp_status'}"
+                        invisible="not context.get('l10n_fr_pdp_flow_id')"/>
             </filter>
         </field>
     </record>
