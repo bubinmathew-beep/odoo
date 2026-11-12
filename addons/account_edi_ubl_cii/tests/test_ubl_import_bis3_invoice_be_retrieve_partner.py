@@ -117,6 +117,7 @@ class TestUblImportBis3InvoiceBERetrievePartner(TestUblImportBis3InvoiceBE):
         self.assertRecordValues(invoice_mwst.partner_id, [{'id': partner.id}])
 
     @freeze_time('2020-01-01')
+<<<<<<< 5723a9965d81deef5d2dcebd425cbbdc3a2f57dc
     def test_import_partner_creation_email(self):
         self.partner_be.unlink()
         self.assertFalse(self.env['res.partner'].search([('vat', '=', 'DE0477472701')]))
@@ -145,6 +146,36 @@ class TestUblImportBis3InvoiceBERetrievePartner(TestUblImportBis3InvoiceBE):
         self.assertRecordValues(invoice.partner_id, [{'id': partner.id}])
 
     @freeze_time('2020-01-01')
+||||||| 5c4488a4e44e20d17d1ee76d1b42066ac12c8a24
+=======
+    def test_import_partner_creation_b2c(self):
+        """
+        Ensure we can create a B2C partner when importing a ubl,
+        even if the partner doesn't have a VAT number.
+        """
+
+        # Test the partner has been created.
+        invoice = self._import_invoice_as_attachment_on(
+            test_name='test_import_partner_creation_b2c',
+            journal=self.company_data['default_journal_sale'],
+        )
+        partner = invoice.partner_id
+        self.assertRecordValues(partner, [{
+            'name': "Jean-Claude",
+            'street': "Rue des Trucs 9",
+            'city': "Bidule",
+            'zip': "6713",
+        }])
+
+        # Test the partner has been retrieved.
+        invoice = self._import_invoice_as_attachment_on(
+            test_name='test_import_partner_creation_b2c',
+            journal=self.company_data['default_journal_sale'],
+        )
+        self.assertRecordValues(invoice.partner_id, [{'id': partner.id}])
+
+    @freeze_time('2020-01-01')
+>>>>>>> 59c11de56c133e7cbb299e7bde96b93aa449ecf8
     def test_import_partner_retrieval_no_contact(self):
         self.env['res.partner'].create({
             'parent_id': self.partner_be.id,
@@ -232,14 +263,17 @@ class TestUblImportBis3InvoiceBERetrievePartner(TestUblImportBis3InvoiceBE):
             test_name='test_partial_import_partner_retrieval_own_bank_account_number',
             journal=self.company_data['default_journal_sale'],
         )
-        # The customer has no VAT so it can't be created
-        self.assertFalse(invoice.partner_id)
-
-        # Once the customer exists, it is retrieved with its email
-        customer = self.env['res.partner'].create({
+        # The own bank account must not match the company's partner: a new customer is created instead
+        customer = invoice.partner_id
+        self.assertNotEqual(customer, self.env.company.partner_id)
+        self.assertRecordValues(customer, [{
             'name': "Partner without VAT",
             'email': "partner.without@vat.com",
-        })
+            'vat': False,
+            'country_id': self.env.ref('base.be').id,
+        }])
+
+        # Once the customer exists, it is retrieved with its email
         invoice = self._import_invoice_as_attachment_on(
             test_name='test_partial_import_partner_retrieval_own_bank_account_number',
             journal=self.company_data['default_journal_sale'],
