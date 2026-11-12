@@ -676,6 +676,52 @@ class TestBatchPicking(TestStockBatchCommon):
         self.assertEqual(delivery.state, 'assigned')
         self.assertTrue(delivery.batch_id)
 
+    def test_auto_batch_max_transfers_and_lines(self):
+        """ When automatic batches are enabled while compatible transfers are already ready,
+        the batch created for the next transfer must respect the maximum number of transfers
+        and the maximum number of lines.
+        """
+        warehouse = self.env['stock.warehouse'].search([], limit=1)
+        type_special_out = self.env['stock.picking.type'].create({
+            'name': 'Special Delivery',
+            'sequence_code': 'SPECOUT',
+            'code': 'outgoing',
+            'company_id': self.env.company.id,
+            'warehouse_id': warehouse.id,
+        })
+        partner = self.env['res.partner'].create({'name': 'Partner 1'})
+        self.env['stock.quant']._update_available_quantity(self.productA, self.stock_location, 10)
+
+        def create_delivery():
+            delivery = self.env['stock.picking'].create({
+                'location_id': self.stock_location.id,
+                'location_dest_id': self.customer_location.id,
+                'picking_type_id': type_special_out.id,
+                'partner_id': partner.id,
+                'move_ids': [Command.create({
+                    'product_id': self.productA.id,
+                    'product_uom_qty': 1,
+                    'location_id': self.stock_location.id,
+                    'location_dest_id': self.customer_location.id,
+                })],
+            })
+            delivery.action_confirm()
+            return delivery
+
+        for limits in ({'batch_max_pickings': 2}, {'batch_max_lines': 2}):
+            type_special_out.write({'auto_batch': False, 'batch_max_pickings': 0, 'batch_max_lines': 0})
+            ready_deliveries = create_delivery() | create_delivery() | create_delivery()
+            self.assertEqual(set(ready_deliveries.mapped('state')), {'assigned'})
+            self.assertFalse(ready_deliveries.batch_id)
+
+            type_special_out.write({'auto_batch': True, 'batch_group_by_partner': True, **limits})
+            new_delivery = create_delivery()
+            batch = new_delivery.batch_id
+            self.assertTrue(batch)
+            self.assertEqual(len(batch.picking_ids), 2, f"The batch must respect {limits}")
+            self.assertEqual(len(batch.move_ids), 2, f"The batch must respect {limits}")
+            (ready_deliveries | new_delivery).action_cancel()
+
     def test_remove_all_transfers_from_confirmed_batch(self):
         """
             Check that the batch is canceled when all transfers are deleted
