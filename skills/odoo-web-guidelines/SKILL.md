@@ -32,5 +32,6 @@ touching instead of loading whole files.
 | [Use the Owl 3 hooks](guidelines/javascript.md#use-the-owl-3-hooks-not-the-owl-2-compatibility-ones) | adding or converting an Owl hook: an effect, a sub-env, a forced render |
 | [SCSS and CSS](guidelines/scss.md#scss-and-css) | touching `*.scss` |
 | [Assets](guidelines/assets.md#assets) | adding an image, font, or library |
+| [No comment unless the code cannot show why](../odoo-guidelines/guidelines/comments.md#no-comment-unless-the-code-cannot-show-why) | adding or editing a comment in code |
 
 To add a guideline, follow [AUTHORING.md](AUTHORING.md).
