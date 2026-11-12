@@ -134,6 +134,20 @@ class TestHrEmployee(TestHrCommon):
         with mute_logger('odoo.sql_db'), self.assertRaises(NotNullViolation):
             self.res_users_hr_officer.tz = False
 
+    def test_version_timezone(self):
+        """ The timezone written on a version is propagated to the user only for the current version """
+        user = new_test_user(self.env, login='tz_user', tz='Africa/Cairo')
+        employee = self.env['hr.employee'].create({'name': 'Tz Employee', 'user_id': user.id})
+        current_version = employee.version_id
+        future_version = employee.create_version({'date_version': fields.Date.today() + relativedelta(months=1)})
+
+        future_version.tz = 'Europe/London'
+        self.assertEqual(user.tz, 'Africa/Cairo', "A future version doesn't change the timezone of the user")
+
+        current_version.tz = 'Europe/Brussels'
+        self.assertEqual(user.tz, 'Europe/Brussels', "The current version changes the timezone of the user")
+        self.assertEqual(future_version.tz, 'Europe/London')
+
     def test_employee_from_user(self):
         _tz = 'Pacific/Apia'
         _tz2 = 'America/Tijuana'
