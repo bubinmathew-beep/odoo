@@ -884,6 +884,7 @@ class ResPartner(models.Model):
             for partner in self:
                 for bank in partner.bank_ids:
                     if bank.acc_holder_name == partner.name:
+<<<<<<< 84e9804699655776b27a66979c8f15265ceabb7a
                         bank.acc_holder_name = vals['name']
 
         # filter to keep only really updated values -> field synchronize goes through
@@ -898,6 +899,11 @@ class ResPartner(models.Model):
         # (this is to allow the code from res_users to write to the partner!) or
         # if setting the company_id to False (this is compatible with any user
         # company)
+||||||| 99efbb4e2c8791495a9f86dd361d131700c3b105
+                        bank.acc_holder_name = vals['name']
+=======
+                        bank.sudo().acc_holder_name = vals['name']
+>>>>>>> b27741eb60206e845dd0bcf7a5de2005637f0da9
         if 'company_id' in vals:
             company_id = vals['company_id']
             for partner in self:
