@@ -171,6 +171,56 @@ test("clicking on the delete attachment button multiple times in composer should
     await expect.waitForSteps(["attachment_unlink"]); // The unlink method must be called once
 });
 
+test("deleting a read-only attachment shows an AccessError notification and keeps the attachment", async () => {
+    const pyEnv = await startServer();
+    const channelId = pyEnv["discuss.channel"].create({
+        channel_type: "channel",
+        name: "channel1",
+    });
+    const attachmentId = pyEnv["ir.attachment"].create({
+        name: "test.txt",
+        mimetype: "text/plain",
+    });
+    pyEnv["mail.message"].create({
+        attachment_ids: [attachmentId],
+        body: "<p>Test</p>",
+        model: "discuss.channel",
+        res_id: channelId,
+        message_type: "comment",
+    });
+
+    mockFetch((input) => {
+        const url = typeof input === "string" ? input : input.url;
+        if (url.includes("/mail/attachment/delete")) {
+            return new Response(
+                JSON.stringify({
+                    jsonrpc: "2.0",
+                    id: 1,
+                    error: {
+                        code: 200,
+                        message: "Odoo Server Error",
+                        data: {
+                            name: "odoo.exceptions.AccessError",
+                            message: "You do not have the rights to delete this attachment.",
+                            debug: "",
+                            arguments: [],
+                            context: {}
+                        }
+                    }
+                }),
+                { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+        }
+    });
+
+    await start();
+    await openDiscuss(channelId);
+    await click(".o-mail-Attachment-unlink");
+    await click(".modal-footer .btn-primary");
+    await contains(".o_notification", { text: "You do not have the rights to delete this attachment." });
+    await contains(".o-mail-AttachmentContainer[title='test.txt']");
+});
+
 test("view attachment", async () => {
     const pyEnv = await startServer();
     const channelId = pyEnv["discuss.channel"].create({
