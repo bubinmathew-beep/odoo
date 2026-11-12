@@ -23,3 +23,13 @@ class BusListenerMixin(models.AbstractModel):
 
     def _bus_channels(self):
         return self
+
+    def _bus_join(self, *channels):
+        """Make the websockets listening to these records join ``channels``, records or
+        ``(record, subchannel)``, once the transaction is committed."""
+        self.env["bus.bus"]._update_subscriptions(self._bus_channels(), channels, True)
+
+    def _bus_leave(self, *channels):
+        """Make the websockets listening to these records leave ``channels``, a record's
+        sub-channels included, once the transaction is committed."""
+        self.env["bus.bus"]._update_subscriptions(self._bus_channels(), channels, False)

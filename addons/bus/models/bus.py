@@ -2,12 +2,14 @@ import datetime
 import logging
 import math
 import os
+from collections import defaultdict
 
 import odoo
 from odoo import api, fields, models
 from odoo.tools import SQL, config
 from odoo.tools.misc import OrderedSet
 
+from ..bus_dispatcher import INTERNAL_CHANNEL, SUBSCRIPTIONS_TYPE
 from ..tools.notifications import fetch_bus_notifications, json_dump
 
 _logger = logging.getLogger(__name__)
@@ -68,6 +70,22 @@ def get_notify_payloads(channels):
                 get_notify_payloads(channels[pivot:]))
 
 
+def subscriptions_payload(join_by_channel_by_owner):
+    """The payload of a ``SUBSCRIPTIONS_TYPE`` notification: one change per distinct
+    set of joined and left channels, with its owners' ids by model."""
+    owners_by_change = defaultdict(lambda: defaultdict(list))
+    for (model, owner_id), join_by_channel in join_by_channel_by_owner.items():
+        owners_by_change[frozenset(join_by_channel.items())][model].append(owner_id)
+    return [
+        {
+            "owners": owners,
+            "join": [channel for channel, join in change if join],
+            "leave": [channel for channel, join in change if not join],
+        }
+        for change, owners in owners_by_change.items()
+    ]
+
+
 class BusBus(models.Model):
     _name = 'bus.bus'
 
@@ -108,6 +126,21 @@ class BusBus(models.Model):
             )
         self.env.cr.precommit.data["bus.bus.values"].append((channel, notification_type, message))
 
+    @api.model
+    def _update_subscriptions(self, owners, channels, join):
+        """Make the websockets listening to the ``owners`` records join or leave
+        ``channels`` once the transaction is committed, see ``bus.listener.mixin._bus_join``.
+        The last change per owner and channel wins."""
+        if not owners or not channels:
+            return
+        self._ensure_hooks()
+        join_by_channel_by_owner = self.env.cr.precommit.data["bus.bus.subscriptions"]
+        channels = [channel_with_db(self.env.cr.dbname, channel) for channel in channels]
+        for owner in owners:
+            join_by_channel = join_by_channel_by_owner[owner._name, owner.id]
+            for channel in channels:
+                join_by_channel[channel] = join
+
     def _prepare_payload(self, payload):
         """Compute and return the final payload for a bus notification. This method is
         called **just before sending the notification**, allowing deferred computation.
@@ -118,12 +151,22 @@ class BusBus(models.Model):
     def _ensure_hooks(self):
         if "bus.bus.values" not in self.env.cr.precommit.data:
             self.env.cr.precommit.data["bus.bus.values"] = []
+            self.env.cr.precommit.data["bus.bus.subscriptions"] = defaultdict(dict)
 
             @self.env.cr.precommit.add
             def create_bus():
                 values = []
                 channels = OrderedSet()
-                for channel, type_, payload in self.env.cr.precommit.data.pop("bus.bus.values"):
+                notifications = self.env.cr.precommit.data.pop("bus.bus.values")
+                if subscriptions := self.env.cr.precommit.data.pop("bus.bus.subscriptions"):
+                    # First, so that a channel joined here gets this transaction's
+                    # notifications: the join fetches from this row's id on.
+                    notifications.insert(0, (
+                        channel_with_db(self.env.cr.dbname, INTERNAL_CHANNEL),
+                        SUBSCRIPTIONS_TYPE,
+                        subscriptions_payload(subscriptions),
+                    ))
+                for channel, type_, payload in notifications:
                     formatted_payload = self._prepare_payload(payload)
                     if formatted_payload is SKIP_NOTIFICATION:
                         continue

@@ -18,18 +18,23 @@ from typing import TYPE_CHECKING
 from weakref import WeakValueDictionary
 
 import psycopg2
+from odoo.service.server import CommonServer
+from odoo.tools import config
 from psycopg2 import InterfaceError
 from psycopg2.pool import PoolError
 
 import odoo
-from odoo.service.server import CommonServer
-from odoo.tools import config
 
 from .session_helpers import check_sessions
 from .tools import orjson
 from .tools.misc import acquire_cursor, tuplify
 from .tools.notifications import fetch_bus_notifications
-from .websocket_protocol import CloseCode, ConnectionState, InvalidStateException, Opcode
+from .websocket_protocol import (
+    CloseCode,
+    ConnectionState,
+    InvalidStateException,
+    Opcode,
+)
 
 if TYPE_CHECKING:
     import typing
@@ -100,6 +105,12 @@ ERROR_RETRY_JITTER = 10
 # How long (in seconds) the listener blocks waiting for a NOTIFY or a worker blocks
 # waiting for the queue.
 POLL_TIMEOUT = 50
+# Channel of the notifications for the dispatcher itself, applied instead of being sent.
+# Every websocket listens to it.
+INTERNAL_CHANNEL = "bus_internal"
+# Type of the internal notifications making the websockets of their owners join and leave
+# channels. See `bus.listener.mixin._bus_join/_bus_leave`.
+SUBSCRIPTIONS_TYPE = "bus_internal/subscriptions"
 
 
 class DispatchState(Enum):
@@ -203,12 +214,12 @@ class ChannelTopic:
             self._last_fetched_id = max(self._last_fetched_id, self._history[last_index][0])
             del self._history[: last_index + 1]
 
-    @staticmethod
-    def _forward_notifications(notifications: list, websockets: Iterable[Websocket]):
+    def _forward_notifications(self, notifications: list, websockets: Iterable[Websocket]) -> list:
         """Serialize ``notifications`` once and send them to every websocket in
-        ``websockets``."""
-        if not notifications:
-            return
+        ``websockets``. The internal channel's notifications are not sent: return the
+        subscription changes they hold instead, see :meth:`_parse_changes`."""
+        if self._channel[1] == INTERNAL_CHANNEL:
+            return self._parse_changes(notifications, websockets)
         payload = orjson.dumps(notifications)
         for websocket in websockets:
             try:  # noqa: SIM105
@@ -216,29 +227,63 @@ class ChannelTopic:
             except InvalidStateException:
                 # Closed in the meantime: the state was changed to `CLOSING/CLOSED`.
                 pass
+        return []
 
-    def dispatch_notifications(self, notifications: list):
+    def _parse_changes(self, notifications: list, recipients: Iterable[Websocket]) -> list:
+        """Return the changes of the ``SUBSCRIPTIONS_TYPE`` notifications, as
+        (recipients, (notification id, owners, channels to join, channels to leave))."""
+        changes = []
+        for notification in notifications:
+            if notification["message"]["type"] != SUBSCRIPTIONS_TYPE:
+                continue
+            try:
+                changes += [
+                    (
+                        recipients,
+                        (
+                            notification["id"],
+                            {
+                                (self._dbname, model, owner_id)
+                                for model, owner_ids in change["owners"].items()
+                                for owner_id in owner_ids
+                            },
+                            [tuplify(channel) for channel in change["join"]],
+                            {tuplify(channel) for channel in change["leave"]},
+                        ),
+                    )
+                    for change in notification["message"]["payload"]
+                ]
+            except (AttributeError, LookupError, TypeError):
+                _logger.warning(
+                    "Bus: ignored malformed subscription changes %s", notification["id"]
+                )
+        return changes
+
+    def dispatch_notifications(self, notifications: list) -> list:
         """Dispatch notifications to subscribers and update the notification history.
 
         :param list notifications: this channel's notifications, sorted by id, covering
             both the regular and the waiting room's range.
+        :return: the subscription changes found, see :meth:`_parse_changes`.
         """
+        changes = []
         if not notifications:
-            return
+            return changes
         # Websockets in the waiting room can have different starting points: catch each of
         # them up from its own last id.
         for websocket, last_id in self._waiting_room_snapshot.items():
             catchup_from_idx = bisect_right(notifications, last_id, key=itemgetter("id"))
             if catchup_from_idx == len(notifications):
                 continue  # Already up to date, nothing to catch up.
-            self._forward_notifications(notifications[catchup_from_idx:], (websocket,))
+            changes += self._forward_notifications(notifications[catchup_from_idx:], (websocket,))
         new_from_idx = bisect_right(notifications, self._last_fetched_id, key=itemgetter("id"))
         new_notifications = notifications[new_from_idx:]
         if excluded_ids := self.excluded_ids:
             new_notifications = [n for n in new_notifications if n["id"] not in excluded_ids]
         if new_notifications:
-            self._forward_notifications(new_notifications, self._websockets)
+            changes += self._forward_notifications(new_notifications, self._websockets)
             self._update_history(new_notifications)
+        return changes
 
 
 def get_reserved_cursor_ratio(default=0.3):
@@ -274,6 +319,9 @@ class BusDispatcher(threading.Thread):
         self._pending_topics_by_db: defaultdict[str, set[ChannelTopic]] = defaultdict(set)
         self._topic_by_channel: dict[tuple, ChannelTopic] = {}
         self._topics_by_websocket: dict[Websocket, set[ChannelTopic]] = {}
+        # Id of the last subscription change applied to a websocket, to tell whether the
+        # channels of its next subscribe were read before it.
+        self._last_change_id_by_websocket: dict[Websocket, LastFetchedId] = {}
 
     # ------------------------------------------------------
     # LISTENER / WORKER ORCHESTRATION
@@ -365,12 +413,13 @@ class BusDispatcher(threading.Thread):
                 # Every channel for this db was unsubscribed by the time this worker
                 # picked it up.
                 continue
+            changes = []
             success = False
             try:
                 with acquire_cursor(dbname) as cr:
                     self._kick_invalid_sessions(cr, topics)
                     notifications_by_channel = self._fetch(cr, topics)
-                self._dispatch(topics, notifications_by_channel)
+                changes = self._dispatch(topics, notifications_by_channel)
                 success = True
             except psycopg2.Error:
                 # Temporary database failure: retry quickly instead of falling back to the
@@ -382,7 +431,12 @@ class BusDispatcher(threading.Thread):
                     )
                     stop_event.wait(BATCH_RETRY_DELAY)
             finally:
-                self._release_claims(dbname, topics, rollback=not success)
+                with self._lock_for_db(dbname):
+                    # Before the release: a topic joined by a change is still claimed, so
+                    # it becomes ``DIRTY`` and is fetched again.
+                    if changes:
+                        self._apply_subscription_changes(changes)
+                    self._release_claims(topics, rollback=not success)
 
     def _worker_run(self):
         self._run_with_retry(self._worker_loop, "Bus._worker_run")
@@ -402,38 +456,115 @@ class BusDispatcher(threading.Thread):
             return
         with self._lock_for_db(websocket._db):
             current_topics = self._topics_by_websocket.get(websocket, set())
-            next_topics = set()
-            for channel in channels:
-                topic = self._topic_by_channel.get(channel)
-                if topic is None:
-                    topic = ChannelTopic(channel, last_fetched_id)
-                    self._topic_by_channel[channel] = topic
-                next_topics.add(topic)
-                if (
-                    websocket in topic._websockets
-                    or websocket in topic._waiting_room
-                    or websocket in topic._waiting_room_snapshot
-                ):
-                    continue
-                # Not yet a full subscriber nor in the waiting room: put in the waiting
-                # room for catch-up.
-                topic._waiting_room[websocket] = last_fetched_id
-                self._notify_topic(topic)
-            for topic in current_topics:
-                if topic in next_topics:
-                    continue
-                topic._websockets = topic._websockets - {websocket}
-                topic._waiting_room.pop(websocket, None)
-                self._drop_topic_if_empty(topic)
+            next_topics = {
+                self._add_to_topic(websocket, channel, last_fetched_id) for channel in channels
+            }
+            for topic in current_topics - next_topics:
+                self._remove_from_topic(topic, {websocket})
             self._topics_by_websocket[websocket] = next_topics
+            if self._last_change_id_by_websocket.get(websocket, 0) > last_fetched_id:
+                # ``channels`` were read before the last change applied to this websocket,
+                # so they may not hold the channels it joined and would remove them.
+                # Replay the internal channel from ``last_fetched_id`` to apply the
+                # changes again.
+                topic = self._topic_by_channel.get((websocket._db, INTERNAL_CHANNEL))
+                if topic and websocket in topic._websockets:
+                    topic._websockets = topic._websockets - {websocket}
+                    topic._waiting_room[websocket] = last_fetched_id
+                    self._notify_topic(topic)
+                elif topic and websocket in topic._waiting_room:
+                    topic._waiting_room[websocket] = min(
+                        topic._waiting_room[websocket], last_fetched_id
+                    )
         self._ensure_started()
 
     def unsubscribe(self, websocket: Websocket):
         with self._lock_for_db(websocket._db):
+            self._last_change_id_by_websocket.pop(websocket, None)
             for topic in self._topics_by_websocket.pop(websocket, set()):
-                topic._websockets = topic._websockets - {websocket}
-                topic._waiting_room.pop(websocket, None)
-                self._drop_topic_if_empty(topic)
+                self._remove_from_topic(topic, {websocket})
+
+    def _add_to_topic(self, websocket: Websocket, channel: tuple, last_fetched_id: LastFetchedId):
+        """Make the websocket listen to the channel from ``last_fetched_id`` on, return
+        the topic."""
+        # Must be called with the dbname's lock held.
+        topic = self._topic_by_channel.get(channel)
+        if topic is None:
+            topic = ChannelTopic(channel, last_fetched_id)
+            self._topic_by_channel[channel] = topic
+        if (
+            websocket in topic._websockets
+            or websocket in topic._waiting_room
+            or websocket in topic._waiting_room_snapshot
+        ):
+            return topic
+        topic._waiting_room[websocket] = last_fetched_id
+        self._notify_topic(topic)
+        return topic
+
+    def _remove_from_topic(self, topic: ChannelTopic, websockets: set[Websocket]):
+        # Must be called with the dbname's lock held.
+        topic._websockets = topic._websockets - websockets
+        for websocket in websockets:
+            topic._waiting_room.pop(websocket, None)
+        self._drop_topic_if_empty(topic)
+
+    def _apply_subscription_changes(self, changes: list[tuple]):
+        """Apply the changes, in order, to the websockets they concern.
+
+        A change reads: the websockets listening to any of its owners (records, e.g. a
+        user: ``alice_user._bus_join(channel)`` has alice as owner, so all her open
+        websockets join ``channel``) join and leave these channels. Only the recipients
+        of the change, who listen to the internal channel, can be concerned.
+
+        A joined channel is caught up from the change's id. Leaving a record leaves its
+        sub-channels too.
+        """
+        # Must be called with the dbname's lock held.
+        changes_by_websocket = defaultdict(list)
+        for recipients, change in changes:
+            owner_topics = filter(None, map(self._topic_by_channel.get, change[1]))
+            listeners = {
+                ws
+                for owner_topic in owner_topics
+                for ws in chain(
+                    owner_topic._websockets,
+                    owner_topic._waiting_room,
+                    owner_topic._waiting_room_snapshot,
+                )
+            }
+            for websocket in listeners.intersection(recipients):
+                changes_by_websocket[websocket].append(change)
+        websockets_by_left_topic = defaultdict(set)
+        for websocket, websocket_changes in changes_by_websocket.items():
+            topics = self._topics_by_websocket.get(websocket)
+            if topics is None:
+                continue  # Unsubscribed in the meantime.
+            # Resolve the final channels first, so that a channel joined then left (or
+            # the opposite) is never added to or removed from a topic needlessly.
+            channels = {topic._channel for topic in topics}
+            catch_up_from = {}
+            for notification_id, _owners, join, leave in websocket_changes:
+                # Leaving a record ``(db, model, id)`` leaves its sub-channels too.
+                for channel in [c for c in channels if c in leave or c[:3] in leave]:
+                    channels.remove(channel)
+                    catch_up_from.pop(channel, None)
+                for channel in join:
+                    channels.add(channel)
+                    catch_up_from[channel] = notification_id
+            self._last_change_id_by_websocket[websocket] = max(
+                self._last_change_id_by_websocket.get(websocket, 0),
+                *(change[0] for change in websocket_changes),
+            )
+            left_topics = [topic for topic in topics if topic._channel not in channels]
+            topics.difference_update(left_topics)
+            for topic in left_topics:
+                websockets_by_left_topic[topic].add(websocket)
+            for channel, from_id in catch_up_from.items():
+                topics.add(self._add_to_topic(websocket, channel, from_id))
+        # Batched per topic: one copy of its websockets however many leave.
+        for topic, websockets in websockets_by_left_topic.items():
+            self._remove_from_topic(topic, websockets)
 
     def _lock_for_db(self, dbname: str):
         with self._lock_by_dbname_guard:
@@ -509,7 +640,6 @@ class BusDispatcher(threading.Thread):
 
     def _release_claims(
         self,
-        dbname: str,
         topics: set[ChannelTopic] | frozenset[ChannelTopic],
         *,
         rollback=False,
@@ -522,26 +652,26 @@ class BusDispatcher(threading.Thread):
         If ``rollback`` is True, the waiting room snapshot is restored to its pre-claim
         state and topics are re-queued for a retry.
         """
-        with self._lock_for_db(dbname):
-            for topic in topics:
-                is_dirty = topic._state is DispatchState.DIRTY
-                topic._state = DispatchState.IDLE
-                # Skip websockets that left during claim to avoid restoring dead
-                # subscriptions.
-                retained_snapshot = (
-                    (websocket, last_id)
-                    for websocket, last_id in topic._waiting_room_snapshot.items()
-                    if topic in self._topics_by_websocket.get(websocket, ())
-                )
-                if rollback:
-                    topic._waiting_room.update(retained_snapshot)
-                else:
-                    topic._websockets = topic._websockets.union(ws for ws, _ in retained_snapshot)
-                topic._waiting_room_snapshot = {}
-                if self._drop_topic_if_empty(topic):
-                    continue
-                if is_dirty or rollback:
-                    self._queue_topic(topic)
+        # Must be called with the dbname's lock held.
+        for topic in topics:
+            is_dirty = topic._state is DispatchState.DIRTY
+            topic._state = DispatchState.IDLE
+            # Skip websockets that left during claim to avoid restoring dead
+            # subscriptions.
+            retained_snapshot = (
+                (websocket, last_id)
+                for websocket, last_id in topic._waiting_room_snapshot.items()
+                if topic in self._topics_by_websocket.get(websocket, ())
+            )
+            if rollback:
+                topic._waiting_room.update(retained_snapshot)
+            else:
+                topic._websockets = topic._websockets.union(ws for ws, _ in retained_snapshot)
+            topic._waiting_room_snapshot = {}
+            if self._drop_topic_if_empty(topic):
+                continue
+            if is_dirty or rollback:
+                self._queue_topic(topic)
 
     def _fetch(self, cr, topics: set[ChannelTopic] | frozenset[ChannelTopic]):
         """Fetch pending notifications for the given topics, grouped by channel."""
@@ -564,10 +694,14 @@ class BusDispatcher(threading.Thread):
         topics: set[ChannelTopic] | frozenset[ChannelTopic],
         notifications_by_channel: dict[tuple, list],
     ):
+        """Dispatch the notifications, return the subscription changes found."""
+        changes = []
         if not notifications_by_channel:
-            return
+            return changes
         for topic in topics:
-            topic.dispatch_notifications(notifications_by_channel.get(topic._channel, []))
+            notifications = notifications_by_channel.get(topic._channel, [])
+            changes += topic.dispatch_notifications(notifications)
+        return changes
 
     def _kick_invalid_sessions(self, cr, topics: set[ChannelTopic] | frozenset[ChannelTopic]):
         """Validate every websocket's session and close those that fail."""
