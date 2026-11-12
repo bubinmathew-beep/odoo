@@ -116,10 +116,16 @@ class ProductTemplate(models.Model):
     # list_price: catalog price, user defined
     list_price = fields.Float(
         'Sales Price', default=1.0,
+        compute='_compute_list_price',
+        compute_sql='_compute_sql_list_price',
+        compute_sudo=True,
+        inverse='_inverse_list_price',
         min_display_digits='Product Price',
+        copy=True,
         tracking=True,
         help="Price at which the product is sold to customers.",
     )
+    specific_list_price = fields.Float(company_dependent=True)
     standard_price = fields.Float(
         'Cost', compute='_compute_standard_price',
         inverse='_set_standard_price', search='_search_standard_price',
@@ -397,14 +403,14 @@ class ProductTemplate(models.Model):
             self_ctx._check_duplicated_variant_barcodes(barcodes_within_company, company_id)
 
     @api.depends('company_id')
+    @api.depends_context('company')
     def _compute_currency_id(self):
-        main_company = self.env['res.company']._get_main_company()
+        env_currency_id = self.env.company.currency_id.id
         for template in self:
-            template.currency_id = template.company_id.sudo().currency_id.id or main_company.currency_id.id
+            template.currency_id = template.company_id.sudo().currency_id.id or env_currency_id
 
     def _compute_sql_currency_id(self, table):
-        main_company = self.env['res.company']._get_main_company()
-        return SQL("COALESCE(%s, %s)", table.company_id.currency_id, main_company.currency_id.id)
+        return SQL("COALESCE(%s, %s)", table.company_id.currency_id, self.env.company.currency_id.id)
 
     @api.depends('company_id')
     @api.depends_context('company')
@@ -415,6 +421,46 @@ class ProductTemplate(models.Model):
 
     def _compute_sql_cost_currency_id(self, table):
         return SQL("COALESCE(%s, %s)", table.company_id.currency_id, self.env.company.currency_id.id)
+
+    def _get_list_price_companies(self):
+        """ Return the companies to take the sales price from, by priority. """
+        return self.env.company.parent_ids[::-1] | self.env['res.company']._get_main_company()
+
+    def _get_first_list_price(self, companies):
+        self.ensure_one()
+        prices = (self.with_company(company).specific_list_price for company in companies)
+        return next((price for price in prices if price), 0.0)
+
+    @api.depends('specific_list_price')
+    @api.depends_context('company')
+    def _compute_list_price(self):
+        companies = self._get_list_price_companies()
+        for template in self:
+            template.list_price = template._get_first_list_price(companies)
+        # without a price in these companies, take the first company having one
+        if templates := self.filtered(lambda template: not template.list_price):
+            other_companies = self.env['res.company'].sudo().search(
+                [('id', 'not in', companies.ids)], order='id'
+            )
+            for template in templates:
+                template.list_price = template._get_first_list_price(other_companies)
+
+    def _compute_sql_list_price(self, table):
+        prices = [
+            SQL("NULLIF(%s, 0)", table._with_model(self.with_company(company)).specific_list_price)
+            for company in self._get_list_price_companies()
+        ]
+        first_price = SQL(
+            "jsonb_path_query_first(%s, '$.* ? (@ != 0)')::float8",
+            SQL.identifier(table._alias, 'specific_list_price'),
+        )
+        return SQL("COALESCE(%s, %s, 0)", SQL(", ").join(prices), first_price)
+
+    def _inverse_list_price(self):
+        for template in self:
+            template.specific_list_price = template.list_price
+        # other companies may use this price
+        self.invalidate_recordset(['list_price'], flush=False)
 
     def _compute_template_field_from_variant_field(self, fname, default=False, multi_variant=False):
         """Set the value of the given field based on the template variant values.
@@ -758,6 +804,7 @@ class ProductTemplate(models.Model):
         self.ensure_one()
         return self.base_unit_count and price / self.base_unit_count
 
+    @api.depends_context('company')
     @api.depends('list_price', 'base_unit_count')
     def _compute_base_unit_price(self):
         for template in self:
@@ -1117,28 +1164,17 @@ class ProductTemplate(models.Model):
             # write this attribute on every product to make sure we don't lose them
             single_value_lines = lines_without_no_variants.filtered(lambda ptal: len(ptal.product_template_value_ids._only_active()) == 1)
             if single_value_lines:
-                # Writing product_template_attribute_value_ids below invalidates
-                # price_extra, which triggers recompute of the stored lst_price
-                # and wipes user-set overrides. Protect lst_price on variants
-                # whose value diverges from the computed one (= manual override);
-                # non-overridden variants are left to the recompute so they
-                # correctly pick up the new ptav's price_extra.
-                overridden = all_variants.filtered(
-                    lambda v: v.lst_price != v.list_price + v.price_extra,
-                )
-                lst_price_field = self.env['product.product']._fields['lst_price']
-                with self.env.protecting([lst_price_field], overridden):
-                    for variant in all_variants:
-                        combination = variant.product_template_attribute_value_ids | single_value_lines.product_template_value_ids._only_active()
-                        # Do not add single value if the resulting combination would
-                        # be invalid anyway.
-                        if (
-                            len(combination) == len(lines_without_no_variants)
-                            and combination.attribute_line_id == lines_without_no_variants
-                            # Update only if necessary to prevent a cache invalidation
-                            and variant.product_template_attribute_value_ids != combination
-                        ):
-                            variant.product_template_attribute_value_ids = combination
+                for variant in all_variants:
+                    combination = variant.product_template_attribute_value_ids | single_value_lines.product_template_value_ids._only_active()
+                    # Do not add single value if the resulting combination would
+                    # be invalid anyway.
+                    if (
+                        len(combination) == len(lines_without_no_variants)
+                        and combination.attribute_line_id == lines_without_no_variants
+                        # Update only if necessary to prevent a cache invalidation
+                        and variant.product_template_attribute_value_ids != combination
+                    ):
+                        variant.product_template_attribute_value_ids = combination
 
             # Set containing existing `product.template.attribute.value` combination
             existing_variants = {
