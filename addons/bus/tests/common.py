@@ -392,7 +392,7 @@ class WebsocketCase(HttpCase, BusCase):
             subscribed.set()
 
         def _mocked_dispatch(self, topics, notifications):
-            original_dispatch(self, topics, notifications)
+            changes = original_dispatch(self, topics, notifications)
             if subscribed.is_set() and any(
                 subscribing_websocket in topic._websockets
                 or subscribing_websocket in topic._waiting_room
@@ -400,6 +400,7 @@ class WebsocketCase(HttpCase, BusCase):
                 for topic in topics
             ):
                 dispatch_bus_notification_done.set()
+            return changes
 
         with patch.object(BusDispatcher, 'subscribe', _mocked_subscribe), \
              patch.object(BusDispatcher, '_dispatch', _mocked_dispatch):

@@ -7,7 +7,7 @@ from odoo.http import request
 from odoo.http.session import check
 from odoo.tools.misc import OrderedSet
 
-from odoo.addons.bus.bus_dispatcher import dispatch
+from odoo.addons.bus.bus_dispatcher import INTERNAL_CHANNEL, dispatch
 from odoo.addons.bus.models.bus import channel_with_db
 from odoo.addons.bus.websocket import wsrequest
 
@@ -28,6 +28,7 @@ class IrWebsocket(models.AbstractModel):
         """
         req = request or wsrequest
         channels.append('broadcast')
+        channels.append(INTERNAL_CHANNEL)
         channels.extend(self.env.user.all_group_ids)
         if req.session.uid:
             channels.append(self.env.user.partner_id)
