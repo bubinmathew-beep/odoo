@@ -331,5 +331,5 @@ class QRPrintTest(AccountTestInvoicingCommon):
 
         self.debtor_partner_li.write({'street': 'Street Name 2'})
         batch_wizard = get_batch_wizard(self.invoices)
-        self.assertEqual(batch_wizard.alerts, False)
+        self.assertFalse(batch_wizard.alerts)
         batch_wizard.action_send_and_print()
