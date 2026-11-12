@@ -1052,6 +1052,28 @@ export class PosStore extends WithLazyGetterTrap {
         line.setDiscount(val);
     }
 
+    async saveTipLine(order, amount) {
+        const payment = order.adjustableTipLine;
+        const line = order.getSelectedOrderline();
+        const tipAmount = line.priceIncl;
+        const values = {
+            ...line.serializeForORM(),
+            price_subtotal: line.priceExcl,
+            price_subtotal_incl: tipAmount,
+        };
+        delete values.record_dependencies;
+        delete values.relations_uuid_mapping;
+        line.delete();
+        await this.data.create("pos.order.line", [values]);
+        if (payment) {
+            await payment.adjustAmount(amount);
+            await this.data.ormWrite("pos.payment", [payment.id], { amount: payment.amount });
+        }
+        const tipValues = { is_tipped: true, tip_amount: tipAmount };
+        order.update(tipValues);
+        await this.data.ormWrite("pos.order", [order.id], tipValues);
+    }
+
     async setTip(tip, type = "fixed", value = false) {
         const currentOrder = this.getOrder();
         const tipProduct = this.config.tip_product_id;

@@ -25,7 +25,6 @@ export class TipScreen extends Component {
 
         useRouterParamsChecker(this.constructor.name);
 
-        this.adjustableTipLine = this.currentOrder.adjustableTipLine;
         if (!this.adjustableTipLine) {
             this.goNextScreen();
             return;
@@ -34,6 +33,10 @@ export class TipScreen extends Component {
         onMounted(async () => {
             await this.printTipReceipt();
         });
+    }
+
+    get adjustableTipLine() {
+        return this.currentOrder.adjustableTipLine;
     }
 
     get tipAmount() {
@@ -133,17 +136,7 @@ export class TipScreen extends Component {
         order.state = "draft";
         await this.pos.setTip(amount);
         order.state = "paid";
-        await this.adjustableTipLine.adjustAmount(amount);
-
-        const serializedTipLine = order.getSelectedOrderline().serializeForORM();
-        order.getSelectedOrderline().delete();
-        delete serializedTipLine["record_dependencies"];
-        delete serializedTipLine["relations_uuid_mapping"];
-        const serverTipLine = await this.pos.data.create("pos.order.line", [serializedTipLine]);
-        await this.pos.data.write("pos.order", [serverId], {
-            is_tipped: true,
-            tip_amount: serverTipLine[0].priceIncl,
-        });
+        await this.pos.saveTipLine(order, amount);
 
         this.goNextScreen();
     }
