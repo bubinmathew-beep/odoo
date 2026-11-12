@@ -4,7 +4,8 @@ from urllib.parse import urlencode
 
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
-from odoo.tools import urls
+from odoo.tools import float_repr, urls
+from odoo.tools.barcode import check_barcode_encoding
 
 from odoo.addons.payment import utils as payment_utils
 from odoo.addons.payment.logging import get_payment_logger
@@ -217,10 +218,67 @@ class PaymentTransaction(models.Model):
         return {
             "reference_id": self.reference,
             "description": f"{self.company_id.name}: {self.reference}",
-            "amount": {"currency_code": self.currency_id.name, "value": str(self.amount)},
+            **self._paypal_prepare_items_payload(),
             "payee": payee_data,
             **shipping_address_vals,
         }
+
+    def _paypal_prepare_items_payload(self):
+        """Prepare the amount and items payload.
+
+        :return: The amount and items payload
+        :rtype: dict
+        """
+        currency = self.currency_id
+        amount_vals = {"currency_code": currency.name, "value": str(self.amount)}
+        line_items = self._get_line_items().values()
+        # Negative amounts (e.g., discounts) and nameless items are not supported.
+        if any(
+            line_item["total"] < 0 or not line_item["name"] for line_item in line_items
+        ) or currency.compare_amounts(
+            sum(line_item["total"] for line_item in line_items), self.amount
+        ):
+            return {"amount": amount_vals, "items": []}
+
+        items = []
+        for line_item in line_items:
+            quantity = line_item["quantity"]
+            unit_amount = currency.round(line_item["total"] / quantity) if quantity else 0.0
+            if (
+                quantity < 1
+                or quantity != int(quantity)
+                or currency.compare_amounts(unit_amount * quantity, line_item["total"])
+            ):
+                # Send the line as a single unit priced at its total.
+                quantity, unit_amount = 1, line_item["total"]
+            item = {
+                "name": line_item["name"][:3000],
+                "description": line_item["description"][:4000],
+                "quantity": str(int(quantity)),
+                "unit_amount": {
+                    "currency_code": currency.name,
+                    "value": float_repr(unit_amount, currency.decimal_places),
+                },
+            }
+
+            if line_item.get("sku"):
+                item["sku"] = line_item["sku"][:127]
+            # Only accepts UPC codes, not other barcode encodings.
+            if (barcode := line_item.get("barcode")) and check_barcode_encoding(barcode, "upca"):
+                item["upc"] = {"type": "UPC-A", "code": barcode}
+            if 0 < len(line_item.get("url", "")) <= 2048:
+                item["url"] = line_item["url"]
+            # Only accepts HTTPS image URLs ending with an image file extension.
+            image_url = line_item.get("image_url", "")
+            if image_url.startswith("https://") and len(image_url) <= 2048:
+                item["image_url"] = image_url
+
+            items.append(item)
+
+        if items:
+            # The item total is required when items are sent.
+            amount_vals["breakdown"] = {"item_total": dict(amount_vals)}
+        return {"amount": amount_vals, "items": items}
 
     def _paypal_prepare_payment_source_payload(self, invoice_address_vals, has_shipping):
         """Prepare the payment source of the create order request payload.
@@ -328,7 +386,7 @@ class PaymentTransaction(models.Model):
                     "reference_id": self.reference,
                     "custom_id": self.reference,
                     "description": f"{self.company_id.name}: {self.reference}",
-                    "amount": {"currency_code": self.currency_id.name, "value": str(self.amount)},
+                    **self._paypal_prepare_items_payload(),
                 }
             ],
             "payment_source": {
