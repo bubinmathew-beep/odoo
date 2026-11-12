@@ -1,4 +1,5 @@
 import { getUrlOptions } from "@html_editor/main/media/video/utils";
+import { _t } from "@web/core/l10n/translation";
 
 /**
  * @abstract
@@ -123,6 +124,7 @@ export class AbstractThirdPartyVideo {
         iframeEl.setAttribute("frameborder", "0");
         iframeEl.setAttribute("contenteditable", "false");
         iframeEl.setAttribute("allowfullscreen", "allowfullscreen");
+        iframeEl.title = _t("Video player");
         iframeEl.src = videoData.embedUrl;
         return iframeEl;
     }
