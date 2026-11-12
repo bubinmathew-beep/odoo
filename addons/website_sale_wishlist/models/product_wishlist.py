@@ -9,7 +9,7 @@ class ProductWishlist(models.Model):
     _description = 'Product Wishlist'
     _sql_constraints = [
         ("product_unique_partner_id",
-         "UNIQUE(product_id, partner_id)",
+         "UNIQUE(product_id, partner_id, website_id)",
          "Duplicated wishlisted product for this partner."),
     ]
 
@@ -56,9 +56,11 @@ class ProductWishlist(models.Model):
         """Assign all wishlist withtout partner from this the current session"""
         session_wishes = self.sudo().search([('id', 'in', request.session.get('wishlist_ids', []))])
         partner_wishes = self.sudo().search([("partner_id", "=", self.env.user.partner_id.id)])
-        partner_products = partner_wishes.mapped("product_id")
-        # Remove session products already present for the user
-        duplicated_wishes = session_wishes.filtered(lambda wish: wish.product_id <= partner_products)
+        partner_products = {(wish.product_id, wish.website_id) for wish in partner_wishes}
+        # Remove session products already present for the user on the same website
+        duplicated_wishes = session_wishes.filtered(
+            lambda wish: (wish.product_id, wish.website_id) in partner_products,
+        )
         session_wishes -= duplicated_wishes
         duplicated_wishes.unlink()
         # Assign the rest to the user
