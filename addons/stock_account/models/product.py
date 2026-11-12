@@ -533,6 +533,7 @@ class ProductProduct(models.Model):
 
             fifo_stack, qty_on_first_move = product._get_fifo_stack(lot=lot, at_date=at_date)
             value = 0
+            stacked_qty = 0
             for index, move in enumerate(fifo_stack):
                 if index == 0 and qty_on_first_move:
                     full_qty = move._get_valued_qty()
@@ -545,8 +546,17 @@ class ProductProduct(models.Model):
                         full_qty = move._get_valued_qty()
                         valued_value = move.value * valued_qty / full_qty if full_qty else 0
                 value += valued_value
+                stacked_qty += valued_qty
                 if correction:
                     stack_by_product[product].append(FifoCandidate(valued_qty, valued_value))
+
+            # The on hand not covered by incoming moves (e.g. quantities set directly on the
+            # quants) is the oldest stock: value it at the cost, as `_get_fifo_value` does.
+            unstacked_qty = quantity - stacked_qty
+            if product.uom_id.compare(unstacked_qty, 0) > 0:
+                value += unstacked_qty * std_price
+                if correction:
+                    stack_by_product[product].insert(0, FifoCandidate(unstacked_qty, unstacked_qty * std_price))
 
             std_price = value / quantity if quantity else std_price
             std_price_by_product_id[product.id] = std_price

@@ -777,6 +777,26 @@ class TestStockValuation(TestStockValuationCommon):
         self.assertEqual(product.qty_available, 0)
         self.assertEqual(product.total_value, 0)
 
+    def test_fifo_on_hand_without_incoming_move(self):
+        """ The on hand not covered by incoming moves (set directly on the quants) is valued
+        at the cost, also when the valuation is replayed after editing the date of a done move.
+        """
+        product = self.product_fifo
+        product.standard_price = 10
+        self.env['stock.quant']._update_available_quantity(product, self.stock_location, 3)
+        self.assertEqual(product.total_value, 30)
+
+        move = self._make_out_move(product, 1)
+        product._invalidate_cache()
+        self.assertEqual(move.value, -10)
+        self.assertRecordValues(product, [{'standard_price': 10, 'total_value': 20}])
+
+        # Shifting the done date replays the valuation from that date
+        move.date -= timedelta(seconds=1)
+        product._invalidate_cache()
+        self.assertEqual(move.value, -10)
+        self.assertRecordValues(product, [{'standard_price': 10, 'total_value': 20}])
+
     def test_fifo_standard_price_upate_1(self):
         product = self.product_fifo
         self._make_in_move(product, 3, unit_cost=17)
