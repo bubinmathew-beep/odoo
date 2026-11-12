@@ -17,6 +17,7 @@ import {
     Component,
     computed,
     onWillDestroy,
+    onWillUnmount,
     proxy,
     signal,
     types,
@@ -110,6 +111,68 @@ export class CallPreview extends Component {
                 },
                 { initialRun: false }
             );
+<<<<<<< 34631b5dac93ebf7c08ddec8c982499ae76aabd2
+||||||| 8173a45a0047755f08cbefb1997bffbaad99a1b3
+            useOnChange(
+                () => [this.store.settings.useBlur],
+                (useBlur) => {
+                    if (useBlur) {
+                        this.enableBlur();
+                    } else {
+                        this.disableBlur();
+                    }
+                },
+                { initialRun: false }
+            );
+            useOnChange(
+                () => [
+                    this.store.settings.edgeBlurAmount,
+                    this.store.settings.backgroundBlurAmount,
+                ],
+                (edgeBlurAmount, backgroundBlurAmount) => {
+                    if (this.state.blurManager) {
+                        this.state.blurManager.edgeBlur = edgeBlurAmount;
+                        this.state.blurManager.backgroundBlur = backgroundBlurAmount;
+                    }
+                },
+                { initialRun: false }
+            );
+=======
+            useOnChange(
+                () => [this.store.settings.useBlur],
+                (useBlur) => {
+                    if (useBlur) {
+                        this.enableBlur();
+                    } else {
+                        this.disableBlur();
+                    }
+                },
+                { initialRun: false }
+            );
+            useOnChange(
+                () => [
+                    this.store.settings.edgeBlurAmount,
+                    this.store.settings.backgroundBlurAmount,
+                ],
+                (edgeBlurAmount, backgroundBlurAmount) => {
+                    if (this.state.blurManager) {
+                        this.state.blurManager.edgeBlur = edgeBlurAmount;
+                        this.state.blurManager.backgroundBlur = backgroundBlurAmount;
+                    }
+                },
+                { initialRun: false }
+            );
+            onWillUnmount(() => {
+                // A media element with an active srcObject is kept alive by the
+                // browser once detached, retaining this component through it.
+                for (const el of [this.audioRef(), this.videoRef()]) {
+                    if (el) {
+                        el.srcObject = null;
+                        el.load();
+                    }
+                }
+            });
+>>>>>>> 464024882ed17f89aac866c341f276986b526f3d
             onWillDestroy(() => {
                 closeStream(this.state.audioStream);
             });
