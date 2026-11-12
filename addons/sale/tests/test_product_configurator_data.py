@@ -11,7 +11,7 @@ from odoo.addons.sale.tests.common import SaleCommon
 @tagged('post_install', '-at_install')
 class TestProductConfiguratorData(HttpCaseWithUserDemo, ProductVariantsCommon, SaleCommon):
 
-    def request_get_values(self, product_template, ptav_ids=None):
+    def request_get_values(self, product_template, ptav_ids=None, product_uom_id=None):
         base_url = product_template.get_base_url()
         response = self.url_open(
             url=base_url + '/sale/product_configurator/get_values',
@@ -21,7 +21,7 @@ class TestProductConfiguratorData(HttpCaseWithUserDemo, ProductVariantsCommon, S
                     'quantity': 1.0,
                     'currency_id': 1,
                     'so_date': str(self.env.cr.now()),
-                    'product_uom_id': None,
+                    'product_uom_id': product_uom_id,
                     'company_id': None,
                     'pricelist_id': None,
                     'ptav_ids': ptav_ids,
@@ -463,3 +463,25 @@ class TestProductConfiguratorData(HttpCaseWithUserDemo, ProductVariantsCommon, S
         self.assertIn('Color', attribute_names)
         # Count occurrences of 'Size' - should be 2 since we have two lines with the same attribute
         self.assertEqual(attribute_names.count('Size'), 2)
+
+    def test_uom_of_another_product_is_ignored(self):
+        """The configurator receives the uom of the sale order line, which may still be the uom of
+        the previous product when the product of the line is replaced. Such a uom must not be used
+        to compute the price, nor be sent back to the line."""
+        product_template = self.env['product.template'].create({
+            'name': 'Container',
+            'uom_id': self.uom_unit.id,
+            'uom_ids': [Command.set(self.uom_dozen.ids)],
+            'list_price': 10.0,
+        })
+        self.authenticate('demo', 'demo')
+
+        result = self.request_get_values(product_template, product_uom_id=self.uom_pack_6.id)
+        product_values = result['products'][0]
+        self.assertEqual(product_values['uom']['id'], self.uom_unit.id)
+        self.assertEqual(product_values['price'], 10.0)
+
+        result = self.request_get_values(product_template, product_uom_id=self.uom_dozen.id)
+        product_values = result['products'][0]
+        self.assertEqual(product_values['uom']['id'], self.uom_dozen.id)
+        self.assertEqual(product_values['price'], 120.0)

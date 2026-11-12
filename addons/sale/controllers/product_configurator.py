@@ -299,10 +299,9 @@ class SaleProductConfiguratorController(Controller):
                 'available_uoms': dict (optional),
             }
         """
-        uom = (
-            (product_uom_id and request.env['uom.uom'].browse(product_uom_id))
-            or product_template.uom_id
-        )
+        uom = request.env['uom.uom'].browse(product_uom_id)
+        if uom not in product_template._get_available_uoms():
+            uom = product_template.uom_id
         product = product_template._get_variant_for_combination(combination)
         attribute_exclusions = product_template._get_attribute_exclusions(
             parent_combination=parent_combination,
