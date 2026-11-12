@@ -1,0 +1,31 @@
+.o_side_panel_toggle {
+    --SidePanelToggle-size: 2.25rem;
+    /* Centered on the line of the folded strip, which starts one spacer away from the outer edge. */
+    --SidePanelToggle-offset: calc(
+        var(--o-bs-spacer-3) + var(--body-line-height) * var(--body-font-size) / 2 -
+            var(--SidePanelToggle-size) / 2
+    );
+
+    width: var(--SidePanelToggle-size);
+    height: var(--SidePanelToggle-size);
+
+    &.o_side_panel_toggle_start {
+        inset-inline-start: var(--SidePanelToggle-offset);
+    }
+
+    &.o_side_panel_toggle_end {
+        inset-inline-end: var(--SidePanelToggle-offset);
+    }
+
+    .oi {
+        transition: rotate 0.2s ease-out;
+
+        &.o_side_panel_toggle_folded {
+            rotate: 180deg;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            transition: none;
+        }
+    }
+}
