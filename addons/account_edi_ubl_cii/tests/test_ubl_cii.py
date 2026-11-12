@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
 import base64
+from unittest.mock import patch
 
 from lxml import etree
 from odoo import fields, Command
+from odoo.addons.account_edi_ubl_cii.models.account_edi_common import EAS_MAPPING
 from odoo.addons.account_edi_ubl_cii.tests.common import TestUblCiiCommon
 from odoo.tests import tagged
 from odoo.tools.safe_eval import datetime
@@ -264,37 +266,51 @@ class TestAccountEdiUblCii(TestUblCiiCommon):
         extra_attachments = self.env['account.move.send']._get_invoice_extra_attachments(move)
         self.assertIn(move.ubl_cii_xml_id, extra_attachments)
 
+    @patch.dict(EAS_MAPPING, {
+        'XA': {'0060': 'company_registry', '0088': 'vat'},
+        'XB': {'0184': 'company_registry', '0198': 'vat'},
+    })
     def test_peppol_eas_endpoint_compute(self):
+        # Use fictitious countries, so that no localization can alter the computation
+        country_a, _country_b = self.env['res.country'].create([
+            {'name': "Peppol Country A", 'code': 'XA'},
+            {'name': "Peppol Country B", 'code': 'XB'},
+        ])
         partner = self.partner_a
-        partner.vat = 'DE123456788'
+        partner.vat = 'XA12345'
 
         self.assertRecordValues(partner, [{
-            'peppol_eas': '9930',
-            'peppol_endpoint': 'DE123456788',
+            'peppol_eas': '0088',
+            'peppol_endpoint': 'XA12345',
         }])
 
-        partner.vat = 'FR23334175221'
+        partner.vat = 'XB98765'
 
         self.assertRecordValues(partner, [{
-            'peppol_eas': '9957',
-            'peppol_endpoint': 'FR23334175221',
+            'peppol_eas': '0198',
+            'peppol_endpoint': 'XB98765',
         }])
 
-        partner.vat = '23334175221'
-
-        self.assertRecordValues(partner, [{
-            'peppol_eas': '9957',
-            'peppol_endpoint': 'FR23334175221',
-        }])
-
+        # Without a prefix in the VAT, the country of the partner is used
         partner.write({
-            'vat': 'BE0477472701',
-            'company_registry': '0477472701',
+            'vat': '12345',
+            'country_id': country_a.id,
         })
 
         self.assertRecordValues(partner, [{
-            'peppol_eas': '0208',
-            'peppol_endpoint': '0477472701',
+            'peppol_eas': '0088',
+            'peppol_endpoint': '12345',
+        }])
+
+        # The prefix of the VAT takes precedence over the country of the partner
+        partner.write({
+            'vat': 'XB98765',
+            'company_registry': '12345674',
+        })
+
+        self.assertRecordValues(partner, [{
+            'peppol_eas': '0184',
+            'peppol_endpoint': '12345674',
         }])
 
     def test_import_partner_peppol_fields(self):
