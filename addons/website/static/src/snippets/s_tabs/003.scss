@@ -95,6 +95,11 @@
             }
         }
 
+        .s_tabs_nav > .nav:not(.nav-buttons):is(.justify-content-center, .justify-content-end) {
+            width: max-content;
+            min-width: 100%;
+        }
+
         .nav-buttons {
             .active {
                 color: color-contrast($white);
